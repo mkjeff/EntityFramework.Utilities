@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Text;
 
@@ -7,6 +8,7 @@ namespace Tests.FakeDomain.Models
 {
     public class RenamedAndReorderedBlogPost
     {
+        [Column("BlogId")]
         public int ID { get; set; }
         public DateTime Created { get; set; }
         public string Title { get; set; }

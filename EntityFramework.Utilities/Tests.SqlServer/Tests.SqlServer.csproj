@@ -25,6 +25,7 @@
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <UseVSHostingProcess>false</UseVSHostingProcess>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -64,6 +65,7 @@
     <Compile Include="Advanced\InsertIntoTempTableTest.cs" />
     <Compile Include="DeleteByQueryTest.cs" />
     <Compile Include="InsertTests.cs" />
+    <Compile Include="MergeTest.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="RenamedColumnsUpdateAllTest.cs" />
     <Compile Include="UpdateBulkTests.cs" />

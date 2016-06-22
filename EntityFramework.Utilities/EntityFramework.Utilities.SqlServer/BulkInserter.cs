@@ -48,7 +48,7 @@ namespace EntityFramework.Utilities.SqlServer
                             }
                         }
                         await dCommand.ExecuteNonQueryAsync();
-                    };
+                    }
                 };
 
                 var copy = tableSpec.Copy();
@@ -111,9 +111,67 @@ namespace EntityFramework.Utilities.SqlServer
             copy.Properties = filtered;
             copy.TableMapping.TableName = tempTableName;
 
+            var tableCreator = settings.TempSettings.Factory.TableCreator();
+            tableCreator.IgnoreIdentityColumns = false;
+            await tableCreator.CreateTable(con, settings.Transaction, tempSpec);
 
-            await settings.TempSettings.Factory.TableCreator().CreateTable(con, settings.Transaction, tempSpec);
 
+            using (var mCommand = new SqlCommand(mergeCommand, con, settings.Transaction))
+            using (var dCommand = new SqlCommand(settings.TempSettings.SqlGenerator.BuildDropStatement(schema, tempTableName), con, settings.Transaction))
+            {
+                await InsertItemsAsync(items, copy, settings);
+                await mCommand.ExecuteNonQueryAsync();
+                await dCommand.ExecuteNonQueryAsync();
+            }
+        }
+
+        public virtual async Task UpsertItemsAsync<T>(IEnumerable<T> items, BulkTableSpec tableSpec, SqlServerBulkSettings settings, Action<IdentitySpecification<T>> identitySpecification, Action<UpdateSpecification<T>> updateSpecification)
+        {
+            var tableName = tableSpec.TableMapping.TableName;
+            var schema = tableSpec.TableMapping.Schema;
+            var tempTableName = TempTableNameGenerator(tableName);
+            var tempSpec = tableSpec.Copy();
+            tempSpec.TableMapping.TableName = tempTableName;
+
+            var properties = tableSpec.Properties;
+
+            HashSet<string> columnsToMatch;
+            if (identitySpecification != null)
+            {
+                var identity = new IdentitySpecification<T>();
+                identitySpecification(identity);
+                columnsToMatch = new HashSet<string>(identity.Properties.Select(p => p.GetPropertyName()));
+            }
+            else
+            {
+                columnsToMatch = new HashSet<string>(properties.Where(p => p.IsPrimaryKey).Select(p => p.NameOnObject));
+            }
+
+            HashSet<string> columnsToUpdate;
+            if (updateSpecification != null)
+            {
+                var spec = new UpdateSpecification<T>();
+                updateSpecification(spec);
+                columnsToUpdate = new HashSet<string>(spec.Properties.Select(p => p.GetPropertyName()));
+            }
+            else
+            {
+                columnsToUpdate = new HashSet<string>(properties.Where(p => !p.IsPrimaryKey).Select(p => p.NameOnObject));
+            }
+
+            var con = settings.Connection as SqlConnection;
+            if (con.State != System.Data.ConnectionState.Open)
+            {
+                await con.OpenAsync();
+            }
+
+            var mergeCommand = settings.TempSettings.SqlGenerator.BuildMergeIntoCommand(tableName, tableSpec.Properties, tempTableName, columnsToMatch, columnsToUpdate);
+            var copy = tableSpec.Copy();
+            copy.TableMapping.TableName = tempTableName;
+
+            var tableCreator = settings.TempSettings.Factory.TableCreator();
+            tableCreator.IgnoreIdentityColumns = false;
+            await tableCreator.CreateTable(con, settings.Transaction, tempSpec);
 
             using (var mCommand = new SqlCommand(mergeCommand, con, settings.Transaction))
             using (var dCommand = new SqlCommand(settings.TempSettings.SqlGenerator.BuildDropStatement(schema, tempTableName), con, settings.Transaction))
@@ -138,8 +196,12 @@ namespace EntityFramework.Utilities.SqlServer
 
             copy.NotifyAfter = 0;
 
+            var tableCreator = settings.Factory.TableCreator();
             foreach (var i in Enumerable.Range(0, reader.FieldCount))
             {
+                //! SqlBulkCopy Insert with Identity Column
+                //! http://stackoverflow.com/questions/6651809/sqlbulkcopy-insert-with-identity-column 
+                if (!properties[i].IsStoreGenerated) 
                 copy.ColumnMappings.Add(i, properties[i].NameInDatabase);
             }
 

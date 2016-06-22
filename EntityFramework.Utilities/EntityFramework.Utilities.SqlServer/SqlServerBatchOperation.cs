@@ -28,6 +28,22 @@ namespace EntityFramework.Utilities.SqlServer
         /// <param name="items">The items to update</param>
         Task UpdateAllAsync<TEntity>(IEnumerable<TEntity> items, Action<UpdateSpecification<TEntity>> updateSpecification, SqlServerBulkSettings settings = null) where TEntity : class, T;
 
+        /// <summary>
+        /// provider batch upsert operation
+        /// SQL:
+        /// merge into [(the table of source entity)] as Target 
+        /// using (tempTable) as Source
+        ///     on <paramref name="identitySpecification"/>
+        /// when matched then
+        ///     update set <paramref name="whenMatchedUpdateSpecification"/>
+	    /// when not matched then
+        ///     insert ...;
+        /// </summary>
+        /// <typeparam name="TEntity"></typeparam>
+        /// <param name="items">The items to upsert</param>
+        /// <param name="identitySpecification">match identity specification. if parameter is null, use primary key as default</param>
+        /// <param name="whenMatchedUpdateSpecification">update specification when matched by <paramref name="identitySpecification"/>. if parameter is null, update all columns except primary key</param>
+        Task MergeAllAsync<TEntity>(IEnumerable<TEntity> items, Action<IdentitySpecification<TEntity>> identitySpecification = null, Action<UpdateSpecification<TEntity>> whenMatchedUpdateSpecification = null, SqlServerBulkSettings settings = null) where TEntity : class, T;
     }
 
     public interface ISqlServerBatchOperationFiltered<TContext, T>
@@ -52,9 +68,7 @@ namespace EntityFramework.Utilities.SqlServer
             this.set = set;
         }
 
-        public static ISqlServerBatchOperationBase<TContext, T> For<TContext, T>(TContext context, IDbSet<T> set)
-            where TContext : DbContext
-            where T : class
+        public static ISqlServerBatchOperationBase<TContext, T> For(TContext context, IDbSet<T> set)
         {
             return new SqlServerBatchOperation<TContext, T>(context, set);
         }
@@ -144,5 +158,17 @@ namespace EntityFramework.Utilities.SqlServer
             return await context.ExecuteStoreCommandAsync(update, parameters);
         }
 
+        public async Task MergeAllAsync<TEntity>(IEnumerable<TEntity> items, Action<IdentitySpecification<TEntity>> identitySpecification, Action<UpdateSpecification<TEntity>> whenMatchedUpdateSpecification, SqlServerBulkSettings settings) where TEntity : class, T
+        {
+            settings = settings ?? new SqlServerBulkSettings();
+            var connectionToUse = GetConnectionOrThrow();
+            settings.Connection = connectionToUse;
+            settings.TempSettings = new TempTableSqlServerBulkSettings(settings);
+
+            var tableSpec = BulkTableSpec.Get<TEntity, T>(this.dbContext);
+
+
+            await settings.Factory.Inserter().UpsertItemsAsync(items, tableSpec, settings, identitySpecification, whenMatchedUpdateSpecification);
+        }
     }
 }

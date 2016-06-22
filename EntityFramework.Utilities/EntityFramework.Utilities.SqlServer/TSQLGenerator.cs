@@ -9,7 +9,7 @@ namespace EntityFramework.Utilities
     {
         public virtual string BuildDropStatement(string schema, string tempTableName)
         {
-            return string.Format("DROP table {0}.[{1}]", schema, tempTableName);
+            return $"DROP table {schema}.[{tempTableName}]";
         }
 
         public virtual string BuildMergeCommand(string tableName, IList<ColumnMapping> properties, string tempTableName)
@@ -17,15 +17,15 @@ namespace EntityFramework.Utilities
             var setters = string.Join(",", properties.Where(c => !c.IsPrimaryKey).Select(c => "[" + c.NameInDatabase + "] = TEMP.[" + c.NameInDatabase + "]"));
             var pks = properties.Where(p => p.IsPrimaryKey).Select(x => "ORIG.[" + x.NameInDatabase + "] = TEMP.[" + x.NameInDatabase + "]");
             var filter = string.Join(" and ", pks);
-            var mergeCommand = string.Format(@"UPDATE [{0}]
+            var mergeCommand = $@"UPDATE [{tableName}]
                 SET
-                    {3}
+                    {setters}
                 FROM
-                    [{0}] ORIG
+                    [{tableName}] ORIG
                 INNER JOIN
-                     [{1}] TEMP
+                     [{tempTableName}] TEMP
                 ON 
-                    {2}", tableName, tempTableName, filter, setters);
+                    {filter}";
 
             return mergeCommand;
         }
@@ -33,10 +33,10 @@ namespace EntityFramework.Utilities
         public virtual string BuildSelectIntoCommand(string tableName, IList<ColumnMapping> properties, string tempTableName)
         {
             var output = properties.Where(p => p.IsStoreGenerated).Select(x => "INSERTED.[" + x.NameInDatabase + "]");
-            var mergeCommand = string.Format(@"INSERT INTO [{0}]
-                OUTPUT {2}
+            var mergeCommand = $@"INSERT INTO [{tableName}]
+                OUTPUT {string.Join(", ", output)}
                 SELECT * FROM 
-                    [{1}]", tableName, tempTableName, string.Join(", ", output));
+                    [{tempTableName}]";
             return mergeCommand;
         }
 
@@ -45,13 +45,13 @@ namespace EntityFramework.Utilities
 
         public virtual string BuildDeleteQuery(QueryInformation queryInfo)
         {
-            return string.Format("DELETE FROM [{0}].[{1}] {2}", queryInfo.Schema, queryInfo.Table, queryInfo.WhereSql);
+            return string.Format($"DELETE FROM [{ queryInfo.Schema}].[{queryInfo.Table}] {queryInfo.WhereSql}");
         }
 
         public virtual string BuildUpdateQuery(QueryInformation predicateQueryInfo, QueryInformation modificationQueryInfo)
         {
             var msql = modificationQueryInfo.WhereSql.Replace("WHERE ", "");
-            var indexOfAnd = msql.IndexOf("AND");
+            var indexOfAnd = msql.IndexOf("AND", StringComparison.Ordinal);
             var update = indexOfAnd == -1 ? msql : msql.Substring(0, indexOfAnd).Trim();
 
             var updateRegex = new Regex(@"(\[[^\]]+\])[^=]+=(.+)", RegexOptions.IgnoreCase);
@@ -72,8 +72,31 @@ namespace EntityFramework.Utilities
             }
 
 
-            return string.Format("UPDATE [{0}].[{1}] SET {2} {3}", predicateQueryInfo.Schema, predicateQueryInfo.Table, updateSql, predicateQueryInfo.WhereSql);
+            return $"UPDATE [{predicateQueryInfo.Schema}].[{predicateQueryInfo.Table}] SET {updateSql} {predicateQueryInfo.WhereSql}";
         }
 
+
+        public virtual string BuildMergeIntoCommand(string tableName, IList<ColumnMapping> properties, string tempTableName,HashSet<string> columnsToIdentity,HashSet<string> columnsToUpdate)
+        {
+            var insertProperties = properties.Where(p => !p.IsStoreGenerated).Select(p => p.NameInDatabase).ToArray();
+
+            string mergeCommand = 
+                $@"merge into [{tableName}] as Target 
+	 using {tempTableName} as Source 
+	 	on {string.Join(" and ", properties
+         .Where(p => columnsToIdentity.Contains(p.NameOnObject))
+         .Select(p => $"Target.{p.NameInDatabase}=Source.{p.NameInDatabase}"))}            
+	 when matched then 
+	 update set {string.Join(",", properties
+     .Where(p => columnsToUpdate.Contains(p.NameOnObject) && !p.IsPrimaryKey)
+     .Select(p => "Target.[" + p.NameInDatabase + "] = Source.[" + p.NameInDatabase + "]"))}
+	 when not matched then 
+	 insert (
+	  {string.Join(",", insertProperties)}
+	 ) values (
+      {string.Join(",", insertProperties.Select(p => $"Source.{p}"))}
+	);";
+            return mergeCommand;
+        }
     }
 }

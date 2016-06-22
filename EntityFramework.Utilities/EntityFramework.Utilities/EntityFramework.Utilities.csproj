@@ -55,6 +55,7 @@
     <Compile Include="EFUQueryable.cs" />
     <Compile Include="EFUQueryProvider.cs" />
     <Compile Include="ExpressionHelper.cs" />
+    <Compile Include="IdentitySpecification.cs" />
     <Compile Include="IIncludeContainer.cs" />
     <Compile Include="MappingHelper.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
